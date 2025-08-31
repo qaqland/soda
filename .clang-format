@@ -1,0 +1,8 @@
+ColumnLimit: 80
+ContinuationIndentWidth: 8
+IndentWidth: 8
+ReflowComments: true
+SortIncludes: true
+SpaceAfterCStyleCast: true
+TabWidth: 8
+UseTab: Always
