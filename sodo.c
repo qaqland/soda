@@ -266,17 +266,34 @@ struct edit_file **init_edit_files(int argc, char *argv[]) {
 }
 
 void move_edit_files(struct edit_file **files) {
+	int rv = 0;
 	for (int i = 0; files[i]; i++) {
-		struct stat new_stat;
-		fstat(files[i]->tmp_fd, &new_stat);
-		if (new_stat.st_mtime == files[i]->stat.st_mtime) {
+		struct stat tmp_stat;
+		struct stat old_stat = files[i]->stat;
+		fstat(files[i]->tmp_fd, &tmp_stat);
+		if (tmp_stat.st_mtime == old_stat.st_mtime) {
 			LOG("move_edit_files: skip %s", files[i]->old_path);
 			continue;
 		}
-		rename(files[i]->tmp_path, files[i]->old_path);
+		rv = rename(files[i]->tmp_path, files[i]->old_path);
+		if (rv == -1) {
+			perror("rename");
+			continue;
+		}
 		// failed: copy
-		// chmod?
+		rv = fchown(files[i]->tmp_fd, old_stat.st_uid, old_stat.st_gid);
+		if (rv == -1) {
+			perror("fchown");
+			continue;
+		}
+		rv = fchmod(files[i]->tmp_fd, old_stat.st_mode);
+		if (rv == -1) {
+			perror("fchmod");
+			continue;
+		}
 		// remove tmp_path
+		close(files[i]->tmp_fd);
+		close(files[i]->old_fd);
 	}
 }
 
