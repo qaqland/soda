@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
 #include <libgen.h>
@@ -187,7 +188,7 @@ struct edit_file *copy_tmp_file(const char *path, const char *prefix) {
 		goto stat_err;
 	}
 
-	file->old_fd = open(path, O_RDONLY);
+	file->old_fd = open(path, O_RDWR | O_NOFOLLOW);
 	if (file->old_fd == -1) {
 		goto open_err;
 	}
@@ -205,15 +206,13 @@ struct edit_file *copy_tmp_file(const char *path, const char *prefix) {
 	}
 	file->tmp_path = strdup(tmpname);
 
-	ssize_t sent =
-		sendfile(file->tmp_fd, file->old_fd, NULL, file->stat.st_size);
+	off_t offset = 0;
+	ssize_t sent = sendfile(file->tmp_fd, file->old_fd, &offset,
+				file->stat.st_size);
 	if (sent == -1) {
 		perror("sendfile");
 		goto send_err;
 	}
-
-	lseek(file->old_fd, 0, SEEK_SET);
-	lseek(file->tmp_fd, 0, SEEK_SET);
 
 	fchown(file->tmp_fd, ruid, rgid);
 
@@ -265,33 +264,61 @@ struct edit_file **init_edit_files(int argc, char *argv[]) {
 	}
 }
 
-void move_edit_files(struct edit_file **files) {
+void move_edit_file(struct edit_file *file, int *new_fd) {
+	int rv = 0;
+
+	struct stat tmp_stat;
+	struct stat old_stat = file->stat;
+	fstat(file->tmp_fd, &tmp_stat);
+	if (tmp_stat.st_mtime == old_stat.st_mtime) {
+		LOG("skip %s", file->old_path);
+		return;
+	}
+	// move
+	rv = rename(file->tmp_path, file->old_path);
+	if (rv == 0) {
+		LOG("rename %s -> %s", file->tmp_path, file->old_path);
+		*new_fd = file->tmp_fd;
+		return;
+	}
+
+	// if fails, tmp_fd is useless
+	*new_fd = file->old_fd;
+
+	if (errno != EXDEV) {
+		perror("rename");
+		goto clear;
+	}
+	// copy
+	off_t offset = 0;
+	ssize_t sent = sendfile(file->old_fd, file->tmp_fd, &offset,
+				file->stat.st_size);
+	if (sent == -1) {
+		perror("sendfile");
+	}
+	LOG("copy %s -> %s", file->tmp_path, file->old_path);
+
+clear:
+	LOG("delete %s", file->tmp_path);
+	unlink(file->tmp_path);
+	return;
+}
+
+void save_edit_files(struct edit_file **files) {
 	int rv = 0;
 	for (int i = 0; files[i]; i++) {
-		struct stat tmp_stat;
-		struct stat old_stat = files[i]->stat;
-		fstat(files[i]->tmp_fd, &tmp_stat);
-		if (tmp_stat.st_mtime == old_stat.st_mtime) {
-			LOG("move_edit_files: skip %s", files[i]->old_path);
-			continue;
-		}
-		rv = rename(files[i]->tmp_path, files[i]->old_path);
-		if (rv == -1) {
-			perror("rename");
-			continue;
-		}
-		// failed: copy
-		rv = fchown(files[i]->tmp_fd, old_stat.st_uid, old_stat.st_gid);
+		int new_fd = -1;
+		move_edit_file(files[i], &new_fd);
+
+		struct stat new_stat = files[i]->stat;
+		rv = fchown(new_fd, new_stat.st_uid, new_stat.st_gid);
 		if (rv == -1) {
 			perror("fchown");
-			continue;
 		}
-		rv = fchmod(files[i]->tmp_fd, old_stat.st_mode);
+		rv = fchmod(new_fd, new_stat.st_mode);
 		if (rv == -1) {
 			perror("fchmod");
-			continue;
 		}
-		// remove tmp_path
 		close(files[i]->tmp_fd);
 		close(files[i]->old_fd);
 	}
@@ -405,6 +432,10 @@ int main(int argc, char *argv[]) {
 		perror("fork");
 		exit(EXIT_FAILURE);
 	case 0:
+		for (int i = 0; files[i]; i++) {
+			close(files[i]->tmp_fd);
+			close(files[i]->old_fd);
+		}
 		setgid(rgid); // 1 st
 		setuid(ruid); // 2 nd
 		execvpe(editor, edit_argv, old_env);
@@ -413,7 +444,7 @@ int main(int argc, char *argv[]) {
 	default:
 		// wait
 		waitpid(pid, &wstatus, 0);
-		move_edit_files(files);
+		save_edit_files(files);
 		exit(EXIT_SUCCESS);
 	}
 }
