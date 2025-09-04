@@ -369,6 +369,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	const char *exec_path = find_exec_path(argv[optind]);
+	if (!exec_path) {
+		ERR("command not found");
+	}
 
 	if (getresuid(&ruid, &euid, &suid) == -1) {
 		perror("getresuid");
