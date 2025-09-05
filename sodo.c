@@ -269,16 +269,18 @@ void move_edit_file(struct edit_file *file, int *new_fd) {
 
 	struct stat tmp_stat;
 	struct stat old_stat = file->stat;
+
+	*new_fd = file->tmp_fd;
+
 	fstat(file->tmp_fd, &tmp_stat);
 	if (tmp_stat.st_mtime == old_stat.st_mtime) {
 		LOG("skip %s", file->old_path);
-		return;
+		goto clear;
 	}
 	// move
 	rv = rename(file->tmp_path, file->old_path);
 	if (rv == 0) {
 		LOG("rename %s -> %s", file->tmp_path, file->old_path);
-		*new_fd = file->tmp_fd;
 		return;
 	}
 
