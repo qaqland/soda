@@ -89,7 +89,7 @@ const char *find_exec_path(const char *exec) {
 	return exec_path ? strdup(exec_path) : NULL;
 }
 
-const char *find_editor(void) {
+const char *find_user_editor(void) {
 	const char *items[] = {
 		"EDITOR",
 		"VISUAL",
@@ -351,7 +351,7 @@ int main(int argc, char *argv[]) {
 	while ((opt = getopt(argc, argv, "ehv")) != -1) {
 		switch (opt) {
 		case 'e':
-			editor = find_editor();
+			editor = find_user_editor();
 			break;
 		case 'h':
 		case 'v':
@@ -368,10 +368,7 @@ int main(int argc, char *argv[]) {
 		ERR("args?");
 	}
 
-	const char *exec_path = find_exec_path(argv[optind]);
-	if (!exec_path) {
-		ERR("command not found");
-	}
+	const char *exec_argv = argv[optind];
 
 	if (getresuid(&ruid, &euid, &suid) == -1) {
 		perror("getresuid");
@@ -398,7 +395,7 @@ int main(int argc, char *argv[]) {
 		ERR("wheel?");
 	}
 
-	char *const *old_env = save_user_envp();
+	char *const *user_envp = save_user_envp();
 
 	if (setuid(0) == -1) {
 		perror("setuid");
@@ -411,6 +408,11 @@ int main(int argc, char *argv[]) {
 
 	init_root_envp();
 	setoptenv(argc, argv);
+
+	const char *exec_path = find_exec_path(exec_argv);
+	if (!exec_path) {
+		ERR("command not found: %s", exec_argv);
+	}
 
 	if (!editor) {
 		// gogogo
@@ -441,7 +443,7 @@ int main(int argc, char *argv[]) {
 		}
 		setgid(rgid); // 1 st
 		setuid(ruid); // 2 nd
-		execvpe(editor, edit_argv, old_env);
+		execvpe(editor, edit_argv, user_envp);
 		perror(editor);
 	// vim
 	default:
