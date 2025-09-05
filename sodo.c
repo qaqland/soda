@@ -289,6 +289,9 @@ void move_edit_file(struct edit_file *file, int *new_fd) {
 		perror("rename");
 		goto clear;
 	}
+
+	lseek(file->old_fd, 0, SEEK_SET);
+	ftruncate(file->old_fd, 0);
 	// copy
 	off_t offset = 0;
 	ssize_t sent = sendfile(file->old_fd, file->tmp_fd, &offset,
