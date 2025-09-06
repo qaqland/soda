@@ -17,6 +17,10 @@
 
 #define WHEEL_GROUP "wheel"
 #define LAST_EDITOR "vi"
+#define SECURE_PATH                                                            \
+	"/usr/local/sbin:/usr/local/bin:"                                      \
+	"/usr/sbin:/usr/bin:"                                                  \
+	"/sbin:/bin"
 
 #ifdef NDEBUG
 #define LOG(...) ((void) 0)
@@ -55,7 +59,15 @@ gid_t rgid, egid, sgid;
 
 bool check_user_group(void) {
 	struct passwd *pw = getpwuid(ruid);
+	if (!pw) {
+		perror("getpwuid");
+		return false;
+	}
 	struct group *gr = getgrnam(WHEEL_GROUP);
+	if (!gr) {
+		perror("getgrnam");
+		return false;
+	}
 	for (int i = 0; gr->gr_mem[i]; i++) {
 		const char *name = gr->gr_mem[i];
 		if (strcmp(name, pw->pw_name) == 0) {
@@ -70,7 +82,8 @@ const char *find_exec_path(const char *exec) {
 		return exec;
 	}
 
-	char *full_path = strdup(getenv("PATH"));
+	const char *user_path = getenv("PATH");
+	char *full_path = strdup(user_path ? user_path : SECURE_PATH);
 	char *exec_path = NULL;
 
 	char buff_path[PATH_MAX] = {0};
@@ -105,8 +118,8 @@ const char *find_user_editor(void) {
 		}
 	}
 
-	LOG("find_editor: %s", name);
-	return find_exec_path(name);
+	LOG("find_user_editor: %s", name);
+	return name;
 }
 
 char **save_user_envp(void) {
@@ -142,11 +155,7 @@ void init_root_envp(void) {
 	setenv("HOME", "/root", true);
 	setenv("SHELL", "/bin/sh", true);
 	// safe path
-	setenv("PATH",
-	       "/usr/local/sbin:/usr/local/bin:"
-	       "/usr/sbin:/usr/bin:"
-	       "/sbin:/bin",
-	       true);
+	setenv("PATH", SECURE_PATH, true);
 	// others
 	setenv("LANG", "C.UTF-8", true);
 	if (term) {
@@ -154,7 +163,7 @@ void init_root_envp(void) {
 	}
 }
 
-int setoptenv(int argc, char *argv[]) {
+int set_opts_env(int argc, char *argv[]) {
 	int count = 0;
 
 	for (int i = 1; i < argc; i++) {
@@ -173,7 +182,7 @@ int setoptenv(int argc, char *argv[]) {
 	return count;
 }
 
-struct edit_file *copy_tmp_file(const char *path, const char *prefix) {
+struct edit_file *make_copy(const char *path, const char *prefix) {
 	if (!path) {
 		return NULL;
 	}
@@ -239,14 +248,14 @@ stat_err:
 	return NULL;
 }
 
-struct edit_file **init_edit_files(int argc, char *argv[]) {
+struct edit_file **fork_each_file(int argc, char *argv[]) {
 	const char *prefix = "/tmp";
 
 	struct edit_file **files = calloc(argc - optind + 1, sizeof(*files));
 
 	int count = 0;
 	for (int i = optind; i < argc; i++) {
-		struct edit_file *file = copy_tmp_file(argv[i], prefix);
+		struct edit_file *file = make_copy(argv[i], prefix);
 		if (!file) {
 			continue;
 		}
@@ -264,7 +273,7 @@ struct edit_file **init_edit_files(int argc, char *argv[]) {
 	}
 }
 
-void move_edit_file(struct edit_file *file, int *new_fd) {
+void move_back(struct edit_file *file, int *new_fd) {
 	int rv = 0;
 
 	struct stat tmp_stat;
@@ -309,11 +318,11 @@ clear:
 	return;
 }
 
-void save_edit_files(struct edit_file **files) {
+void save_each_file(struct edit_file **files) {
 	int rv = 0;
 	for (int i = 0; files[i]; i++) {
 		int new_fd = -1;
-		move_edit_file(files[i], &new_fd);
+		move_back(files[i], &new_fd);
 
 		struct stat new_stat = files[i]->stat;
 		rv = fchown(new_fd, new_stat.st_uid, new_stat.st_gid);
@@ -347,16 +356,16 @@ char **make_edit_argv(struct edit_file **files) {
 }
 
 int main(int argc, char *argv[]) {
-	const char *editor = NULL;
+	bool use_editor = false;
 
 	// parse FOO=bar
-	optind += setoptenv(argc, argv);
+	optind += set_opts_env(argc, argv);
 
 	int opt;
 	while ((opt = getopt(argc, argv, "ehv")) != -1) {
 		switch (opt) {
 		case 'e':
-			editor = find_user_editor();
+			use_editor = true;
 			break;
 		case 'h':
 		case 'v':
@@ -372,8 +381,6 @@ int main(int argc, char *argv[]) {
 	if (optind == argc) {
 		ERR("args?");
 	}
-
-	const char *exec_argv = argv[optind];
 
 	if (getresuid(&ruid, &euid, &suid) == -1) {
 		perror("getresuid");
@@ -411,15 +418,19 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	init_root_envp();
-	setoptenv(argc, argv);
+	const char *editor_name = find_user_editor();
 
+	init_root_envp();
+	set_opts_env(argc, argv);
+
+	const char *exec_argv = use_editor ? editor_name : argv[optind];
 	const char *exec_path = find_exec_path(exec_argv);
+
 	if (!exec_path) {
 		ERR("command not found: %s", exec_argv);
 	}
 
-	if (!editor) {
+	if (!use_editor) {
 		// gogogo
 		execvp(exec_path, &argv[optind]);
 		perror("execvp");
@@ -427,12 +438,12 @@ int main(int argc, char *argv[]) {
 	}
 
 	// mktemp, cp, chown, time
-	struct edit_file **files = init_edit_files(argc, argv);
+	struct edit_file **files = fork_each_file(argc, argv);
 	if (!files) {
 		ERR("file count = 0");
 	}
 	char **edit_argv = make_edit_argv(files);
-	edit_argv[0] = (char *) editor;
+	edit_argv[0] = (char *) editor_name;
 
 	// fork
 	pid_t pid = fork();
@@ -448,13 +459,12 @@ int main(int argc, char *argv[]) {
 		}
 		setgid(rgid); // 1 st
 		setuid(ruid); // 2 nd
-		execvpe(editor, edit_argv, user_envp);
-		perror(editor);
-	// vim
+		execvpe(exec_path, edit_argv, user_envp);
+		perror(exec_path);
 	default:
 		// wait
 		waitpid(pid, &wstatus, 0);
-		save_edit_files(files);
+		save_each_file(files);
 		exit(EXIT_SUCCESS);
 	}
 }
