@@ -407,7 +407,7 @@ int main(int argc, char *argv[]) {
 		ERR("wheel?");
 	}
 
-	char *const *user_envp = save_user_envp();
+	char **user_envp = save_user_envp();
 
 	if (setuid(0) == -1) {
 		perror("setuid");
@@ -418,7 +418,7 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	const char *editor_name = find_user_editor();
+	const char *editor_name = use_editor ? find_user_editor() : NULL;
 
 	init_root_envp();
 	set_opts_env(argc, argv);
@@ -462,6 +462,8 @@ int main(int argc, char *argv[]) {
 		execvpe(exec_path, edit_argv, user_envp);
 		perror(exec_path);
 	default:
+		free(edit_argv);
+		free_user_envp(user_envp);
 		// wait
 		waitpid(pid, &wstatus, 0);
 		save_each_file(files);
