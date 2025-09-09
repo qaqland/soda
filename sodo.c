@@ -336,7 +336,7 @@ void move_back(struct edit_file *file, int *new_fd) {
 	}
 
 	// try to move
-	if (rename(file->tmp_path, file->old_path)) {
+	if (rename(file->tmp_path, file->old_path) == 0) {
 		LOG("rename %s to %s", file->tmp_path, file->old_path);
 		return;
 	}
