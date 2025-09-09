@@ -463,12 +463,7 @@ int main(int argc, char *argv[]) {
 		ERR("root?");
 	}
 
-	// suid?
-	if (ruid == euid) {
-		ERR("suid?");
-	}
-
-	char **user_envp = save_user_envp();
+	char **user_envp = use_editor ? save_user_envp() : NULL;
 
 	if (setuid(0) == -1) {
 		perror("setuid");
