@@ -15,61 +15,59 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifndef WHEEL_GROUP
 #define WHEEL_GROUP "wheel"
+#endif
+
+#ifndef LAST_EDITOR
 #define LAST_EDITOR "vi"
+#endif
+
+#ifndef SECURE_PATH
 #define SECURE_PATH                                                            \
 	"/usr/local/sbin:/usr/local/bin:"                                      \
 	"/usr/sbin:/usr/bin:"                                                  \
 	"/sbin:/bin"
-#define PROGRAM_NAME "sodo"
+#endif
+
+#ifndef PROG_NAME
+#define PROG_NAME "sodo"
+#endif
+
+#ifndef PROG_VERSION
+#define PROG_VERSION "0.0.0"
+#endif
+
+#define PROG_USAGE                                                             \
+	"usage: " PROG_NAME " [NAME=VALUE] COMMAND [ARG]...\n"                 \
+	"   or: " PROG_NAME " -e FILE...\n"                                    \
+	"\n"                                                                   \
+	"execute a command as root\n"
+
+#define FMT(fmt, ...)                                                          \
+	do {                                                                   \
+		fprintf(stderr, PROG_NAME ": " fmt "\n", ##__VA_ARGS__);       \
+	} while (0)
+#define FMT_SYS(fmt, ...)                                                      \
+	do {                                                                   \
+		int _errno = errno;                                            \
+		fprintf(stderr, PROG_NAME ": " fmt " (errno: %d - %s)\n",      \
+			##__VA_ARGS__, _errno, strerror(_errno));              \
+	} while (0)
 
 #ifdef NDEBUG
-#define LOG(fmt, ...)                                                          \
-	do {                                                                   \
-		fprintf(stderr, PROGRAM_NAME ": " fmt "\n", ##__VA_ARGS__);    \
-	} while (0)
-#define LOG_SYS(fmt, ...)                                                      \
-	do {                                                                   \
-		int _errno = errno;                                            \
-		fprintf(stderr, PROGRAM_NAME ": " fmt " (errno: %d - %s)\n",   \
-			##__VA_ARGS__, _errno, strerror(_errno));              \
-	} while (0)
-#define ERR(fmt, ...)                                                          \
-	do {                                                                   \
-		fprintf(stderr, PROGRAM_NAME ": " fmt "\n", ##__VA_ARGS__);    \
-		exit(EXIT_FAILURE);                                            \
-	} while (0)
-#define ERR_SYS(fmt, ...)                                                      \
-	do {                                                                   \
-		int _errno = errno;                                            \
-		fprintf(stderr, PROGRAM_NAME ": " fmt " (errno: %d - %s)\n",   \
-			##__VA_ARGS__, _errno, strerror(_errno));              \
-		exit(EXIT_FAILURE);                                            \
-	} while (0)
+#define LOG(fmt, ...) (void) 0
+#define LOG_SYS(fmt, ...) (void) 0
 #else
 #define LOG(fmt, ...)                                                          \
 	do {                                                                   \
-		fprintf(stderr, "[%3d] DEBUG: " fmt "\n", __LINE__,            \
-			##__VA_ARGS__);                                        \
+		fprintf(stderr, PROG_NAME ": " fmt "\n", ##__VA_ARGS__);       \
 	} while (0)
 #define LOG_SYS(fmt, ...)                                                      \
 	do {                                                                   \
 		int _errno = errno;                                            \
-		fprintf(stderr, "[%3d] DEBUG: " fmt " (errno: %d - %s)\n",     \
-			__LINE__, ##__VA_ARGS__, _errno, strerror(_errno));    \
-	} while (0)
-#define ERR(fmt, ...)                                                          \
-	do {                                                                   \
-		fprintf(stderr, "[%3d] ERROR: " fmt "\n", __LINE__,            \
-			##__VA_ARGS__);                                        \
-		exit(EXIT_FAILURE);                                            \
-	} while (0)
-#define ERR_SYS(fmt, ...)                                                      \
-	do {                                                                   \
-		int _errno = errno;                                            \
-		fprintf(stderr, "[%3d] ERROR: " fmt " (errno: %d - %s)\n",     \
-			__LINE__, ##__VA_ARGS__, _errno, strerror(_errno));    \
-		exit(EXIT_FAILURE);                                            \
+		fprintf(stderr, PROG_NAME ": " fmt " (errno: %d - %s)\n",      \
+			##__VA_ARGS__, _errno, strerror(_errno));              \
 	} while (0)
 #endif
 
@@ -87,11 +85,13 @@ gid_t rgid, egid, sgid;
 void check_user_group(void) {
 	struct passwd *pw = getpwuid(ruid);
 	if (!pw) {
-		ERR_SYS("failed to get user info for UID %d", ruid);
+		FMT_SYS("failed to get user info for UID %d", ruid);
+		exit(EXIT_FAILURE);
 	}
 	struct group *gr = getgrnam(WHEEL_GROUP);
 	if (!gr) {
-		ERR_SYS("group " WHEEL_GROUP " not found");
+		FMT_SYS("group " WHEEL_GROUP " not found");
+		exit(EXIT_FAILURE);
 	}
 	for (int i = 0; gr->gr_mem[i]; i++) {
 		const char *name = gr->gr_mem[i];
@@ -99,7 +99,8 @@ void check_user_group(void) {
 			return;
 		}
 	}
-	ERR("failed to verify user in " WHEEL_GROUP " group");
+	FMT("failed to verify user in " WHEEL_GROUP " group");
+	exit(EXIT_FAILURE);
 }
 
 char *find_exec_path(const char *exec) {
@@ -127,7 +128,7 @@ char *find_exec_path(const char *exec) {
 		LOG("retrieve path for command %s: %s", exec, exec_path);
 		return strdup(exec_path);
 	} else {
-		LOG("failed to retrieve path for command %s", exec);
+		FMT("failed to retrieve path for command %s", exec);
 		return NULL;
 	}
 }
@@ -164,11 +165,14 @@ char **save_user_envp(void) {
 	}
 	assert(env_backup[env_count] == NULL);
 
-	LOG("save user environment: entries *%d", env_count);
+	LOG("save user environment (count: %d)", env_count);
 	return env_backup;
 }
 
 void free_user_envp(char **envp) {
+	if (!envp) {
+		return;
+	}
 	for (int i = 0; envp[i]; i++) {
 		free(envp[i]);
 	}
@@ -227,17 +231,17 @@ struct edit_file *make_copy(const char *path, const char *prefix) {
 	file->old_path = path;
 
 	if (stat(file->old_path, &file->stat)) {
-		LOG_SYS("failed to stat %s", file->old_path);
+		FMT_SYS("failed to stat %s", file->old_path);
 		goto stat_err;
 	}
 	if (!S_ISREG(file->stat.st_mode)) {
-		LOG("not a regular file: %s", file->old_path);
+		FMT("not a regular file: %s", file->old_path);
 		goto stat_err;
 	}
 
 	file->old_fd = open(file->old_path, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
 	if (file->old_fd == -1) {
-		LOG_SYS("failed to open %s", file->old_path);
+		FMT_SYS("failed to open %s", file->old_path);
 		goto open_err;
 	}
 
@@ -250,7 +254,7 @@ struct edit_file *make_copy(const char *path, const char *prefix) {
 	free(path_dup); // free it after using base
 
 	if (file->tmp_fd == -1) {
-		LOG_SYS("failed to mkstemps %s", buff_path);
+		FMT_SYS("failed to mkstemps %s", buff_path);
 		goto temp_err;
 	}
 	file->tmp_path = strdup(buff_path);
@@ -259,14 +263,14 @@ struct edit_file *make_copy(const char *path, const char *prefix) {
 	ssize_t sent = sendfile(file->tmp_fd, file->old_fd, &offset,
 				file->stat.st_size);
 	if (sent == -1) {
-		LOG_SYS("failed to sendfile from %s to %s", file->old_path,
+		FMT_SYS("failed to sendfile from %s to %s", file->old_path,
 			file->tmp_path);
 		goto send_err;
 	}
 
 	if (fchown(file->tmp_fd, ruid, rgid)) {
 		// unreachable
-		ERR_SYS("failed to fchown %s", file->tmp_path);
+		FMT_SYS("failed to fchown %s", file->tmp_path);
 	}
 
 	struct timespec times[2];
@@ -278,7 +282,7 @@ struct edit_file *make_copy(const char *path, const char *prefix) {
 	times[1].tv_nsec = 0;
 	if (futimens(file->tmp_fd, times)) {
 		// unreachable
-		ERR_SYS("failed to futimens %s", file->tmp_path);
+		FMT_SYS("failed to futimens %s", file->tmp_path);
 	}
 
 	return file;
@@ -328,15 +332,15 @@ void move_back(struct edit_file *file, int *new_fd) {
 
 	if (fstat(file->tmp_fd, &tmp_stat)) {
 		// unreachable
-		ERR_SYS("failed to fstat %s", file->tmp_path);
+		FMT_SYS("failed to fstat %s", file->tmp_path);
 	}
 	if (tmp_stat.st_mtime == old_stat.st_mtime) {
-		LOG("unchanged %s", file->old_path);
+		FMT("unchanged %s", file->old_path);
 		goto clean;
 	}
 
 	// try to move
-	if (rename(file->tmp_path, file->old_path)) {
+	if (!rename(file->tmp_path, file->old_path)) {
 		LOG("rename %s to %s", file->tmp_path, file->old_path);
 		return;
 	}
@@ -370,7 +374,7 @@ void move_back(struct edit_file *file, int *new_fd) {
 clean:
 	LOG("delete temp file %s", file->tmp_path);
 	if (unlink(file->tmp_path)) {
-		LOG_SYS("failed to delete %s", file->tmp_path);
+		FMT_SYS("failed to delete %s", file->tmp_path);
 	}
 	return;
 }
@@ -384,10 +388,10 @@ void save_each_file(struct edit_file **files) {
 		}
 		struct stat new_stat = files[i]->stat;
 		if (fchown(new_fd, new_stat.st_uid, new_stat.st_gid)) {
-			LOG_SYS("failed to fchown %s", files[i]->old_path);
+			FMT_SYS("failed to fchown %s", files[i]->old_path);
 		}
 		if (fchmod(new_fd, new_stat.st_mode)) {
-			LOG_SYS("failed to fchmod %s", files[i]->old_path);
+			FMT_SYS("failed to fchmod %s", files[i]->old_path);
 		}
 	}
 }
@@ -400,6 +404,8 @@ void free_each_file(struct edit_file **files) {
 		// fork + execvpe has COW
 		free(files[i]->tmp_path);
 	}
+
+	free(files);
 }
 
 char **make_edit_argv(struct edit_file **files) {
@@ -422,8 +428,6 @@ char **make_edit_argv(struct edit_file **files) {
 int main(int argc, char *argv[]) {
 	bool use_editor = false;
 
-	check_user_group();
-
 	// parse FOO=bar
 	optind += set_opts_env(argc, argv);
 
@@ -434,43 +438,54 @@ int main(int argc, char *argv[]) {
 			use_editor = true;
 			break;
 		case 'h':
+			printf(PROG_USAGE);
+			exit(EXIT_SUCCESS);
 		case 'v':
+			printf(PROG_NAME " version " PROG_VERSION "\n");
 			exit(EXIT_SUCCESS);
 			break;
 		case '?':
 		default:
+			printf(PROG_USAGE);
+			exit(EXIT_FAILURE);
 			break;
 		}
 	}
 
 	// args?
 	if (optind == argc) {
-		ERR("args?");
+		printf(PROG_USAGE);
+		exit(EXIT_FAILURE);
 	}
 
+	check_user_group();
+
 	if (getresuid(&ruid, &euid, &suid) == -1) {
-		perror("getresuid");
+		FMT_SYS("failed to getresuid");
 		exit(EXIT_FAILURE);
 	}
 
 	if (getresgid(&rgid, &egid, &sgid) == -1) {
-		perror("getresgid");
+		FMT_SYS("failed to getresgid");
 		exit(EXIT_FAILURE);
 	}
 
 	// root?
 	if (euid != 0) {
-		ERR("root?");
+		FMT("operation requires root EUID");
+		exit(EXIT_FAILURE);
 	}
 
 	char **user_envp = use_editor ? save_user_envp() : NULL;
 
 	if (setuid(0) == -1) {
-		perror("setuid");
+		FMT_SYS("failed to setuid root");
+		free_user_envp(user_envp);
 		exit(EXIT_FAILURE);
 	}
 	if (setgid(0) == -1) {
-		perror("setgid");
+		FMT_SYS("failed to setgid root");
+		free_user_envp(user_envp);
 		exit(EXIT_FAILURE);
 	}
 
@@ -480,24 +495,30 @@ int main(int argc, char *argv[]) {
 	set_opts_env(argc, argv);
 
 	const char *exec_argv = use_editor ? editor_name : argv[optind];
-	const char *exec_path = find_exec_path(exec_argv);
+	char *exec_path = find_exec_path(exec_argv);
 
 	if (!exec_path) {
-		ERR("command not found: %s", exec_argv);
+		FMT("command not found: %s", exec_argv);
+		free_user_envp(user_envp);
+		exit(EXIT_FAILURE);
 	}
 
 	if (!use_editor) {
-		// gogogo
 		execvp(exec_path, &argv[optind]);
-		perror("execvp");
+		// unreachable
+		FMT_SYS("failed to execvp: %s", exec_path);
+		free_user_envp(user_envp);
 		exit(EXIT_FAILURE);
 	}
 
 	// mktemp, cp, chown, time
 	struct edit_file **files = fork_each_file(argc, argv);
 	if (!files) {
-		ERR("file count = 0");
+		FMT("no valid files, exiting");
+		free_user_envp(user_envp);
+		exit(EXIT_FAILURE);
 	}
+
 	char **edit_argv = make_edit_argv(files);
 	edit_argv[0] = (char *) editor_name;
 
@@ -506,18 +527,22 @@ int main(int argc, char *argv[]) {
 	int wstatus;
 	switch (pid) {
 	case -1:
-		perror("fork");
+		FMT_SYS("failed to fork");
 		exit(EXIT_FAILURE);
 	case 0:
 		setgid(rgid); // 1 st
 		setuid(ruid); // 2 nd
 		execvpe(exec_path, edit_argv, user_envp);
-		perror(exec_path);
+		// unreachable
+		FMT_SYS("failed to execvpe: %s", exec_path);
+		exit(EXIT_FAILURE);
 	default:
 		// FIXME
 		// wait execvpe to follow COW?
+		free(exec_path);
 		free(edit_argv);
 		free_user_envp(user_envp);
+		LOG("waiting for editor exit...");
 		// wait
 		waitpid(pid, &wstatus, 0);
 		save_each_file(files);
