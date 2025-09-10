@@ -31,7 +31,7 @@
 #endif
 
 #ifndef PROG_NAME
-#define PROG_NAME "sodo"
+#define PROG_NAME "soda"
 #endif
 
 #ifndef PROG_VERSION
@@ -40,9 +40,7 @@
 
 #define PROG_USAGE                                                             \
 	"usage: " PROG_NAME " [NAME=VALUE] COMMAND [ARG]...\n"                 \
-	"   or: " PROG_NAME " -e FILE...\n"                                    \
-	"\n"                                                                   \
-	"execute a command as root\n"
+	"   or: " PROG_NAME " -e FILE...\n"
 
 #define FMT(fmt, ...)                                                          \
 	do {                                                                   \
@@ -248,7 +246,7 @@ struct edit_file *make_copy(const char *path, const char *prefix) {
 	char *path_dup = strdup(path);
 	const char *base = basename(path_dup);
 	char buff_path[PATH_MAX] = {0};
-	snprintf(buff_path, PATH_MAX, "%s/sodo.XXXXXX%s", prefix, base);
+	snprintf(buff_path, PATH_MAX, "%s/soda.XXXXXX%s", prefix, base);
 
 	file->tmp_fd = mkostemps(buff_path, strlen(base), O_CLOEXEC);
 	free(path_dup); // free it after using base
