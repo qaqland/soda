@@ -36,7 +36,6 @@ Please read the source code and figure out the installation on your own.
 - Integeation tests
 - Manpage(needed?)
 - Debug? Valgrind?
-- Makefile
 
 ## LICENSE
 

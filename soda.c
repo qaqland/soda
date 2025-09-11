@@ -322,11 +322,9 @@ struct edit_file **fork_each_file(int argc, char *argv[]) {
 	}
 }
 
-void move_back(struct edit_file *file, int *new_fd) {
+bool copy_back(const struct edit_file *file) {
 	struct stat tmp_stat;
 	struct stat old_stat = file->stat;
-
-	*new_fd = file->tmp_fd;
 
 	if (fstat(file->tmp_fd, &tmp_stat)) {
 		// unreachable
@@ -334,62 +332,47 @@ void move_back(struct edit_file *file, int *new_fd) {
 	}
 	if (tmp_stat.st_mtime == old_stat.st_mtime) {
 		FMT("unchanged %s", file->old_path);
-		goto clean;
+		return true;
 	}
-
-	// try to move
-	if (!rename(file->tmp_path, file->old_path)) {
-		LOG("rename %s to %s", file->tmp_path, file->old_path);
-		return;
-	}
-
-	// TODO
-	// try sendfile?
-	if (errno != EXDEV) {
-		LOG_SYS("failed to rename %s", file->tmp_path);
-		*new_fd = -1;
-		goto clean;
-	}
-
-	// if fails, tmp_fd is useless
-	*new_fd = file->old_fd;
 
 	// necessary!
-	lseek(file->old_fd, 0, SEEK_SET);
-	ftruncate(file->old_fd, 0);
+	if (lseek(file->old_fd, 0, SEEK_SET) == -1) {
+		// unreachable
+		FMT_SYS("failed to lseek %s", file->old_path);
+		return false;
+	}
+	if (ftruncate(file->old_fd, 0)) {
+		// unreachable
+		FMT_SYS("failed to fstat %s", file->old_path);
+		return false;
+	}
 
 	// copy
 	off_t offset = 0;
 	ssize_t sent = sendfile(file->old_fd, file->tmp_fd, &offset,
 				file->stat.st_size);
 	if (sent == -1) {
-		LOG_SYS("failed to sendfile from %s to %s", file->tmp_path,
+		FMT_SYS("failed to sendfile from %s to %s", file->tmp_path,
 			file->old_path);
-		goto clean;
+		return false;
 	}
 	LOG("copy %s back to %s", file->tmp_path, file->old_path);
 
-clean:
-	LOG("delete temp file %s", file->tmp_path);
-	if (unlink(file->tmp_path)) {
-		FMT_SYS("failed to delete %s", file->tmp_path);
-	}
-	return;
+	return true;
 }
 
 void save_each_file(struct edit_file **files) {
 	for (int i = 0; files[i]; i++) {
-		int new_fd = -1;
-		move_back(files[i], &new_fd);
-		if (new_fd == -1) {
+		const struct edit_file *file = files[i];
+		bool is_ok = copy_back(file);
+		if (!is_ok) {
+			FMT("backup retained at %s", file->tmp_path);
 			continue;
 		}
-		struct stat new_stat = files[i]->stat;
-		if (fchown(new_fd, new_stat.st_uid, new_stat.st_gid)) {
-			FMT_SYS("failed to fchown %s", files[i]->old_path);
-		}
-		if (fchmod(new_fd, new_stat.st_mode)) {
-			FMT_SYS("failed to fchmod %s", files[i]->old_path);
+
+		LOG("delete temp file %s", file->tmp_path);
+		if (unlink(file->tmp_path)) {
+			FMT_SYS("failed to delete %s", file->tmp_path);
 		}
 	}
 }
