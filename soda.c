@@ -13,6 +13,7 @@
 #include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #ifndef WHEEL_GROUP
@@ -79,6 +80,7 @@ struct edit_file {
 
 uid_t ruid, euid, suid;
 gid_t rgid, egid, sgid;
+char *pw_name;
 
 void check_user_group(void) {
 	struct passwd *pw = getpwuid(ruid);
@@ -86,6 +88,7 @@ void check_user_group(void) {
 		FMT_SYS("failed to get user info for UID %d", ruid);
 		exit(EXIT_FAILURE);
 	}
+	pw_name = strdup(pw->pw_name);
 	struct group *gr = getgrnam(WHEEL_GROUP);
 	if (!gr) {
 		FMT_SYS("group " WHEEL_GROUP " not found");
@@ -486,6 +489,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (!use_editor) {
+		syslog(LOG_INFO | LOG_AUTH, "%s ran command %s as root from %s",
+		       pw_name, exec_path, getcwd(NULL, 0));
 		execvp(exec_path, &argv[optind]);
 		// unreachable
 		FMT_SYS("failed to execvp: %s", exec_path);
