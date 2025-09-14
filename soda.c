@@ -352,8 +352,8 @@ bool copy_back(const struct edit_file *file) {
 
 	// copy
 	off_t offset = 0;
-	ssize_t sent = sendfile(file->old_fd, file->tmp_fd, &offset,
-				file->stat.st_size);
+	ssize_t sent =
+		sendfile(file->old_fd, file->tmp_fd, &offset, tmp_stat.st_size);
 	if (sent == -1) {
 		FMT_SYS("failed to sendfile from %s to %s", file->tmp_path,
 			file->old_path);
