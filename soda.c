@@ -439,8 +439,6 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	check_user_group();
-
 	if (getresuid(&ruid, &euid, &suid) == -1) {
 		FMT_SYS("failed to getresuid");
 		exit(EXIT_FAILURE);
@@ -456,6 +454,9 @@ int main(int argc, char *argv[]) {
 		FMT("operation requires root EUID");
 		exit(EXIT_FAILURE);
 	}
+
+	// after initializing ruid
+	check_user_group();
 
 	char **user_envp = use_editor ? save_user_envp() : NULL;
 

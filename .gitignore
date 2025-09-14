@@ -1,4 +1,5 @@
 *.out
+.gdb_history
 log
 soda
 sodo
