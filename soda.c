@@ -231,6 +231,9 @@ struct edit_file *make_copy(const char *path, const char *prefix) {
 	struct edit_file *file = calloc(1, sizeof(*file));
 	file->old_path = path;
 
+	// TODO
+	// If the specified file does not exist, it will be created.
+
 	if (stat(file->old_path, &file->stat)) {
 		FMT_SYS("failed to stat %s", file->old_path);
 		goto stat_err;
@@ -309,7 +312,7 @@ struct edit_file **fork_each_file(int argc, char *argv[]) {
 	for (int i = optind; i < argc; i++) {
 		struct edit_file *file = make_copy(argv[i], prefix);
 		if (!file) {
-			LOG("fork file from %s (skip)", file->old_path);
+			LOG("fork file from %s (skip)", argv[i]);
 			continue;
 		}
 		LOG("fork file from %s to %s", file->old_path, file->tmp_path);
