@@ -416,7 +416,7 @@ int main(int argc, char *argv[]) {
 	optind += set_opts_env(argc, argv);
 
 	int opt;
-	while ((opt = getopt(argc, argv, "ehv")) != -1) {
+	while ((opt = getopt(argc, argv, "+ehv")) != -1) {
 		switch (opt) {
 		case 'e':
 			use_editor = true;
