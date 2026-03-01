@@ -1,5 +1,8 @@
 # soda
 
+> [!IMPORTANT]
+> This project has been moved to https://github.com/qaqland/overthinkin/tree/main/keyi-sudo
+
 soda - unsafe(\*not rust, no passwd) sudo/doas
 
 Allow users in a specific group to execute a command as root.
